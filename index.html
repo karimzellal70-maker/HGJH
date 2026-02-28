@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>المُسمّع الذكي 4.0</title>
+
+<style>
+:root{--gold:#c6a355;--bg:#050505;--card:#111;--text:#e0e0e0;}
+body{margin:0;background:var(--bg);color:var(--text);font-family:sans-serif;}
+.nav{display:flex;justify-content:space-around;background:var(--card);padding:15px;}
+.nav button{background:none;border:none;color:#888;font-weight:bold;font-size:1rem}
+.nav button.active{color:var(--gold);border-bottom:2px solid var(--gold);}
+.screen{display:none;padding:20px}
+.active{display:block}
+textarea{width:100%;height:170px;background:#000;border:1px solid #222;border-radius:12px;color:#fff;padding:15px;font-size:1.1rem}
+.record-card{background:var(--card);padding:15px;border-radius:10px;margin-top:10px;border-right:4px solid var(--gold);cursor:pointer}
+.main-btn{background:var(--gold);color:#000;border:none;padding:15px;border-radius:50px;font-weight:bold;width:100%;margin-top:15px}
+.mic-btn{width:70px;height:70px;border-radius:50%;border:2px solid var(--gold);background:none;color:var(--gold);font-size:1.5rem;display:block;margin:30px auto}
+.w{display:inline-block;min-width:40px;height:1.5em;background:#1a1a1a;margin:5px;border-radius:4px;color:transparent}
+.revealed{background:transparent;color:#fff;text-shadow:0 0 10px var(--gold)}
+.hint{background:#331a00;color:#ffcc00}
+.info{text-align:center;margin-top:15px;color:#aaa}
+.level{color:var(--gold);font-weight:bold}
+</style>
+</head>
+
+<body>
+
+<div class="nav">
+<button id="nav1" class="active" onclick="showScreen(1)">📝 السجلات</button>
+<button id="nav2" onclick="showScreen(2)">🎤 التسميع</button>
+</div>
+
+<div id="screen1" class="screen active">
+<textarea id="textInput" placeholder="أدخل نصاً أو سجل صوتياً..."></textarea>
+<button class="main-btn" onclick="toggleRecord()">🎙️ تسجيل صوتي</button>
+<button class="main-btn" style="background:#222;color:#fff" onclick="saveText()">💾 حفظ</button>
+<h3 style="color:var(--gold)">النصوص المحفوظة:</h3>
+<div id="historyList"></div>
+</div>
+
+<div id="screen2" class="screen">
+<div id="practice-area"></div>
+<button class="mic-btn" onclick="togglePractice()">🎤</button>
+<div class="info" id="info"></div>
+</div>
+
+<script>
+
+// ===== إعدادات =====
+let recognition = new (window.webkitSpeechRecognition || window.SpeechRecognition)();
+recognition.lang='ar-SA';
+recognition.interimResults=false;
+
+// ===== قاعدة البيانات =====
+let db=JSON.parse(localStorage.getItem("vault")||"[]");
+let score=parseInt(localStorage.getItem("score")||0);
+let currentWords=[];
+let cursor=0;
+let recording=false;
+
+// ===== التنقل =====
+function showScreen(n){
+document.querySelectorAll(".screen").forEach(s=>s.classList.remove("active"));
+document.querySelectorAll(".nav button").forEach(b=>b.classList.remove("active"));
+document.getElementById("screen"+n).classList.add("active");
+document.getElementById("nav"+n).classList.add("active");
+if(n==1) renderHistory();
+}
+
+// ===== حفظ النص =====
+function saveText(){
+let t=document.getElementById("textInput").value.trim();
+if(!t)return;
+db.unshift({id:Date.now(),content:t});
+localStorage.setItem("vault",JSON.stringify(db));
+document.getElementById("textInput").value="";
+renderHistory();
+}
+
+function renderHistory(){
+let list=document.getElementById("historyList");
+list.innerHTML=db.map(item=>`
+<div class="record-card" onclick="preparePractice('${item.id}')">
+${item.content.substring(0,60)}...
+</div>`).join('');
+}
+
+// ===== بدء التسميع =====
+function preparePractice(id){
+let item=db.find(x=>x.id==id);
+currentWords=item.content.split(/\s+/);
+cursor=0;
+let area=document.getElementById("practice-area");
+area.innerHTML=currentWords.map((w,i)=>`<span class="w" id="word-${i}">${w}</span>`).join(' ');
+updateInfo();
+showScreen(2);
+}
+
+// ===== تسجيل إدخال نص =====
+function toggleRecord(){
+if(!recording){
+recognition.onresult=(e)=>{
+document.getElementById("textInput").value=e.results[0][0].transcript;
+};
+recognition.start();
+recording=true;
+}else{
+recognition.stop();
+recording=false;
+}
+}
+
+// ===== تسجيل التسميع =====
+function togglePractice(){
+if(!recording){
+recognition.onresult=(e)=>{
+let spoken=e.results[0][0].transcript.trim();
+checkWord(spoken);
+};
+recognition.start();
+recording=true;
+}else{
+recognition.stop();
+recording=false;
+}
+}
+
+// ===== فحص الكلمة بذكاء اصطناعي =====
+function checkWord(spoken){
+if(cursor>=currentWords.length)return;
+
+let target=normalize(currentWords[cursor]);
+let user=normalize(spoken);
+let sim=similarity(user,target);
+
+if(sim>0.75){
+document.getElementById(`word-${cursor}`).classList.add("revealed");
+cursor++;
+score+=10;
+localStorage.setItem("score",score);
+updateInfo();
+}else{
+showHint();
+}
+}
+
+// ===== تلميح =====
+function showHint(){
+let el=document.getElementById(`word-${cursor}`);
+el.classList.add("hint");
+if(navigator.vibrate) navigator.vibrate(200);
+setTimeout(()=>el.classList.remove("hint"),1000);
+}
+
+// ===== مستوى المستخدم =====
+function getLevel(){
+if(score<200)return "مبتدئ";
+if(score<600)return "متوسط";
+return "محترف";
+}
+
+// ===== تحديث المعلومات =====
+function updateInfo(){
+let progress=Math.round((cursor/currentWords.length)*100);
+document.getElementById("info").innerHTML=
+`النقاط: ${score} | التقدم: ${progress}% <br>
+المستوى: <span class="level">${getLevel()}</span>`;
+}
+
+// ===== معالجة عربية =====
+function normalize(s){
+return s.replace(/[ًٌٍَُِّـ]/g,"")
+.replace(/[أإآ]/g,"ا")
+.replace(/ة/g,"ه")
+.trim();
+}
+
+// ===== خوارزمية تشابه =====
+function similarity(a,b){
+let longer=a.length>b.length?a:b;
+let shorter=a.length>b.length?b:a;
+if(longer.length===0)return 1;
+return (longer.length-editDistance(longer,shorter))/longer.length;
+}
+
+function editDistance(a,b){
+let costs=[];
+for(let i=0;i<=a.length;i++){
+let last=i;
+for(let j=0;j<=b.length;j++){
+if(i==0)costs[j]=j;
+else if(j>0){
+let newValue=costs[j-1];
+if(a.charAt(i-1)!=b.charAt(j-1))
+newValue=Math.min(Math.min(newValue,last),costs[j])+1;
+costs[j-1]=last;
+last=newValue;
+}
+}
+if(i>0)costs[b.length]=last;
+}
+return costs[b.length];
+}
+
+renderHistory();
+
+</script>
+</body>
+</html>
